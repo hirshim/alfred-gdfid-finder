@@ -27,7 +27,7 @@ GoogleドライブのファイルIDからFinderでファイルを表示するAlf
 
 ```bash
 # リポジトリをクローン
-git clone https://github.com/cyberdoctor/alfred-gdfid-finder.git
+git clone https://github.com/hirshim/alfred-gdfid-finder.git
 cd alfred-gdfid-finder
 
 # 依存関係をインストール
