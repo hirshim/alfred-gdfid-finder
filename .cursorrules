@@ -1,0 +1,84 @@
+# alfred-gdfid-finder Cursor Rules
+
+## 言語設定
+
+- 主要言語: Python 3.9+（macOS標準の `/usr/bin/python3` 対応）
+- コメント・docstring: 日本語可（英語推奨）
+- コミットメッセージ: 日本語可
+
+## コーディングスタイル
+
+### Python
+
+- フォーマッター: ruff format
+- リンター: ruff check
+- 型チェック: mypy (strict mode)
+- docstring: Google style
+
+### 型ヒント
+
+- 全ての関数・メソッドに型ヒントを付与する
+- `from __future__ import annotations` を必ず使用
+- Python 3.9互換のため `typing` モジュールを使用:
+  - `List[X]` instead of `list[X]`
+  - `Optional[X]` instead of `X | None`
+  - `Dict[K, V]` instead of `dict[K, V]`
+
+### インポート
+
+```python
+# 1. 標準ライブラリ
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+from typing import List, Optional
+
+# 2. サードパーティ
+# （このプロジェクトでは最小限）
+
+# 3. ローカル
+from gdfid_finder.utils import find_drive_path
+```
+
+## ファイル構成
+
+- `src/gdfid_finder/`: メインパッケージ
+- `tests/`: pytestテストファイル（`test_*.py`形式）
+- `doc/`: ドキュメント
+- `workflow/`: Alfred Workflow関連ファイル
+
+## テスト
+
+- pytest を使用
+- テストファイルは `tests/test_*.py` 形式
+- フィクスチャは `tests/conftest.py` に配置
+- カバレッジ80%以上を目標
+
+## エラーハンドリング
+
+- Alfred Workflowからの実行を考慮
+- 標準出力はAlfredへの結果として扱う
+- エラーは標準エラー出力へ
+- 適切な終了コードを返す
+
+## macOS固有
+
+- Google Drive for Desktopのパス: `~/Library/CloudStorage/GoogleDrive-*/`
+- Finderでのファイル選択: `open -R` コマンドを使用（injection脆弱性回避のためAppleScriptは不使用）
+- パスは `pathlib.Path` で扱う
+
+## 禁止事項
+
+- グローバル変数の使用
+- `type: ignore` コメント（やむを得ない場合を除く）
+- ワイルドカードインポート (`from x import *`)
+- printデバッグ（loggingを使用）
+
+## 推奨事項
+
+- 早期リターンパターンを使用
+- 関数は単一責任の原則に従う
+- マジックナンバーは定数として定義
+- パスは文字列ではなくPathオブジェクトで扱う

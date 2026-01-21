@@ -1,0 +1,235 @@
+"""Tests for finder module."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+from gdfid_finder.finder import (
+    _get_file_id,
+    _search_in_path,
+    _search_recursive,
+    find_file_by_id,
+)
+
+
+class TestFindFileById:
+    """Tests for find_file_by_id function."""
+
+    def test_returns_none_when_no_drive_paths(self) -> None:
+        """Should return None when no Google Drive paths exist."""
+        with patch(
+            "gdfid_finder.finder.get_google_drive_base_paths", return_value=[]
+        ):
+            result = find_file_by_id("some_file_id")
+            assert result is None
+
+    def test_returns_none_when_file_not_found(self, tmp_path: Path) -> None:
+        """Should return None when file ID is not found in any drive."""
+        drive_path = tmp_path / "GoogleDrive-test"
+        drive_path.mkdir()
+
+        with (
+            patch(
+                "gdfid_finder.finder.get_google_drive_base_paths",
+                return_value=[drive_path],
+            ),
+            patch("gdfid_finder.finder._get_file_id", return_value=None),
+        ):
+            result = find_file_by_id("nonexistent_id")
+            assert result is None
+
+    def test_searches_all_drive_paths(self, tmp_path: Path) -> None:
+        """Should search through all available Google Drive paths."""
+        drive1 = tmp_path / "GoogleDrive-user1"
+        drive2 = tmp_path / "GoogleDrive-user2"
+        drive1.mkdir()
+        drive2.mkdir()
+
+        with (
+            patch(
+                "gdfid_finder.finder.get_google_drive_base_paths",
+                return_value=[drive1, drive2],
+            ),
+            patch(
+                "gdfid_finder.finder._search_in_path", return_value=None
+            ) as mock_search,
+        ):
+            find_file_by_id("test_id")
+
+            assert mock_search.call_count == 2
+            mock_search.assert_any_call(drive1, "test_id")
+            mock_search.assert_any_call(drive2, "test_id")
+
+    def test_returns_first_found_path(self, tmp_path: Path) -> None:
+        """Should return the first matching path found."""
+        drive1 = tmp_path / "GoogleDrive-user1"
+        drive2 = tmp_path / "GoogleDrive-user2"
+        drive1.mkdir()
+        drive2.mkdir()
+
+        expected_path = drive1 / "found_file.txt"
+
+        with (
+            patch(
+                "gdfid_finder.finder.get_google_drive_base_paths",
+                return_value=[drive1, drive2],
+            ),
+            patch(
+                "gdfid_finder.finder._search_in_path",
+                side_effect=[expected_path, None],
+            ),
+        ):
+            result = find_file_by_id("test_id")
+            assert result == expected_path
+
+
+class TestSearchInPath:
+    """Tests for _search_in_path function."""
+
+    def test_returns_base_path_if_id_matches(self, tmp_path: Path) -> None:
+        """Should return base path if its file ID matches."""
+        with patch(
+            "gdfid_finder.finder._get_file_id", return_value="target_id"
+        ):
+            result = _search_in_path(tmp_path, "target_id")
+            assert result == tmp_path
+
+    def test_searches_priority_directories_first(self, tmp_path: Path) -> None:
+        """Should search マイドライブ/My Drive before other directories."""
+        my_drive = tmp_path / "マイドライブ"
+        my_drive.mkdir()
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+
+        target_file = my_drive / "target.txt"
+        target_file.write_text("test")
+
+        def mock_get_id(path: Path) -> str | None:
+            if path == target_file:
+                return "target_id"
+            return None
+
+        with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
+            result = _search_in_path(tmp_path, "target_id")
+            assert result == target_file
+
+    def test_returns_none_when_not_found(self, tmp_path: Path) -> None:
+        """Should return None when file ID is not found."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        with patch("gdfid_finder.finder._get_file_id", return_value=None):
+            result = _search_in_path(tmp_path, "nonexistent_id")
+            assert result is None
+
+    def test_handles_permission_error(self, tmp_path: Path) -> None:
+        """Should handle PermissionError gracefully."""
+        with (
+            patch("gdfid_finder.finder._get_file_id", return_value=None),
+            patch.object(Path, "iterdir", side_effect=PermissionError),
+        ):
+            result = _search_in_path(tmp_path, "test_id")
+            assert result is None
+
+
+class TestSearchRecursive:
+    """Tests for _search_recursive function."""
+
+    def test_returns_path_if_id_matches(self, tmp_path: Path) -> None:
+        """Should return path if its file ID matches."""
+        with patch(
+            "gdfid_finder.finder._get_file_id", return_value="target_id"
+        ):
+            result = _search_recursive(tmp_path, "target_id")
+            assert result == tmp_path
+
+    def test_searches_children_recursively(self, tmp_path: Path) -> None:
+        """Should search child directories recursively."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        target_file = subdir / "target.txt"
+        target_file.write_text("test")
+
+        def mock_get_id(path: Path) -> str | None:
+            if path == target_file:
+                return "target_id"
+            return None
+
+        with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
+            result = _search_recursive(tmp_path, "target_id")
+            assert result == target_file
+
+    def test_skips_hidden_files(self, tmp_path: Path) -> None:
+        """Should skip hidden files/directories."""
+        hidden_dir = tmp_path / ".hidden"
+        hidden_dir.mkdir()
+        hidden_file = hidden_dir / "file.txt"
+        hidden_file.write_text("test")
+
+        call_count = 0
+
+        def mock_get_id(_path: Path) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            return None
+
+        with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
+            _search_recursive(tmp_path, "test_id")
+            # Should only check tmp_path, not .hidden or its contents
+            assert call_count == 1
+
+    def test_handles_permission_error(self, tmp_path: Path) -> None:
+        """Should handle PermissionError gracefully."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        def mock_get_id(_path: Path) -> str | None:
+            return None
+
+        def mock_iterdir(self: Path) -> list[Path]:
+            if self == tmp_path:
+                return [subdir]
+            raise PermissionError
+
+        with (
+            patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id),
+            patch.object(Path, "iterdir", mock_iterdir),
+        ):
+            result = _search_recursive(tmp_path, "test_id")
+            assert result is None
+
+
+class TestGetFileId:
+    """Tests for _get_file_id function."""
+
+    def test_returns_file_id_on_success(self, tmp_path: Path) -> None:
+        """Should return file ID when xattr succeeds."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "test_file_id\n"
+
+        with patch(
+            "gdfid_finder.finder.subprocess.run", return_value=mock_result
+        ):
+            result = _get_file_id(tmp_path)
+            assert result == "test_file_id"
+
+    def test_returns_none_on_failure(self, tmp_path: Path) -> None:
+        """Should return None when xattr fails."""
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+
+        with patch(
+            "gdfid_finder.finder.subprocess.run", return_value=mock_result
+        ):
+            result = _get_file_id(tmp_path)
+            assert result is None
+
+    def test_returns_none_on_exception(self, tmp_path: Path) -> None:
+        """Should return None when an exception occurs."""
+        with patch(
+            "gdfid_finder.finder.subprocess.run", side_effect=Exception("error")
+        ):
+            result = _get_file_id(tmp_path)
+            assert result is None
