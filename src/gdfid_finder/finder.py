@@ -6,7 +6,7 @@ import ctypes
 import ctypes.util
 import os
 from pathlib import Path
-from typing import Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from gdfid_finder.utils import get_google_drive_base_paths
 
@@ -35,6 +35,13 @@ if _libc is not None:
         ctypes.c_uint32,
         ctypes.c_int,
     ]
+
+# Priority search directories (common Google Drive locations)
+_PRIORITY_DIRS = ["マイドライブ", "My Drive", "共有ドライブ", "Shared drives"]
+_PRIORITY_DIRS_SET = frozenset(_PRIORITY_DIRS)
+
+# Type alias for stack entries: (path_str, is_dir_no_follow, is_symlink)
+_StackEntry = Tuple[str, bool, bool]
 
 
 def find_file_by_id(file_id: str) -> Optional[Path]:
@@ -75,15 +82,16 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
     Returns:
         Path if found, None otherwise.
     """
+    target_bytes = file_id.encode("utf-8")
+
     # Check the base path itself
-    if _get_file_id(base_path) == file_id:
+    if _has_file_id(str(base_path).encode("utf-8"), target_bytes):
         return base_path
 
     visited: Set[str] = set()
 
     # Search in common locations first (マイドライブ, My Drive)
-    priority_dirs = ["マイドライブ", "My Drive", "共有ドライブ", "Shared drives"]
-    for dir_name in priority_dirs:
+    for dir_name in _PRIORITY_DIRS:
         priority_path = base_path / dir_name
         if priority_path.exists():
             found = _search_iterative(priority_path, file_id, visited)
@@ -93,7 +101,7 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
     # Search other directories
     try:
         for entry in os.scandir(base_path):
-            if entry.name.startswith(".") or entry.name in priority_dirs:
+            if entry.name.startswith(".") or entry.name in _PRIORITY_DIRS_SET:
                 continue
             if entry.is_dir(follow_symlinks=False):
                 found = _search_iterative(Path(entry.path), file_id, visited)
@@ -112,8 +120,12 @@ def _search_iterative(
 
     Uses an explicit stack instead of recursion to avoid stack overflow
     on deep directory trees. Tracks resolved paths to detect symlink loops.
-    Uses os.scandir() for efficient directory enumeration (DirEntry caches
-    is_dir/is_symlink from readdir, avoiding extra stat() calls).
+
+    Performance optimizations over naive Path-based traversal:
+    - Stack stores (path_str, is_dir, is_symlink) tuples from DirEntry,
+      avoiding redundant stat()/lstat() syscalls per file.
+    - Bytes-only file ID comparison skips decode() overhead.
+    - String paths avoid Path object construction in the hot loop.
 
     Args:
         root: Root path to start searching from.
@@ -123,21 +135,59 @@ def _search_iterative(
     Returns:
         Path if found, None otherwise.
     """
-    stack = [root]
+    target_bytes = file_id.encode("utf-8")
+    root_str = str(root)
+
+    # Check root's file ID
+    if _has_file_id(root_str.encode("utf-8"), target_bytes):
+        return root
+
+    if not root.is_dir():
+        return None
+
+    # Symlink loop detection for root
+    try:
+        real_path = os.path.realpath(root_str) if root.is_symlink() else root_str
+    except Exception:
+        return None
+
+    if real_path in visited:
+        return None
+    visited.add(real_path)
+
+    # Build initial stack from root's children using DirEntry cache
+    stack: List[_StackEntry] = []
+    try:
+        for entry in os.scandir(root_str):
+            if entry.name.startswith("."):
+                continue
+            # DirEntry caches is_dir/is_symlink from readdir d_type (no syscall)
+            stack.append(
+                (entry.path, entry.is_dir(follow_symlinks=False), entry.is_symlink())
+            )
+    except PermissionError:
+        return None
 
     while stack:
-        path = stack.pop()
+        path_str, is_dir, is_symlink = stack.pop()
 
-        if _get_file_id(path) == file_id:
-            return path
+        # Bytes-only file ID check (no decode overhead)
+        if _has_file_id(path_str.encode("utf-8"), target_bytes):
+            return Path(path_str)
 
-        if not path.is_dir():
+        # Skip non-directories (DirEntry cached, no stat syscall)
+        if not is_dir and not is_symlink:
             continue
 
-        # Only resolve symlinks when actually a symlink
+        # Symlinks that aren't directories: check if target is a directory
+        # Using os.path.isdir (not Path.is_dir) to avoid Path construction
+        if is_symlink and not is_dir and not os.path.isdir(path_str):  # noqa: PTH112
+            continue
+
+        # Symlink loop detection (string-based, no Path construction)
         try:
-            real_path = str(path.resolve()) if path.is_symlink() else str(path)
-        except OSError:
+            real_path = os.path.realpath(path_str) if is_symlink else path_str
+        except Exception:
             continue
 
         if real_path in visited:
@@ -145,14 +195,46 @@ def _search_iterative(
         visited.add(real_path)
 
         try:
-            for entry in os.scandir(path):
+            for entry in os.scandir(path_str):
                 if entry.name.startswith("."):
                     continue
-                stack.append(Path(entry.path))
+                stack.append(
+                    (
+                        entry.path,
+                        entry.is_dir(follow_symlinks=False),
+                        entry.is_symlink(),
+                    )
+                )
         except PermissionError:
             pass
 
     return None
+
+
+def _has_file_id(path_bytes: bytes, target_bytes: bytes) -> bool:
+    """Check if a path's xattr file ID matches the target.
+
+    Bytes-only comparison avoids decode overhead in the search loop.
+    Uses the shared fixed-size ctypes buffer.
+
+    Args:
+        path_bytes: UTF-8 encoded file path.
+        target_bytes: UTF-8 encoded target file ID.
+
+    Returns:
+        True if the file ID matches, False otherwise.
+    """
+    if _libc is None:
+        return False
+    try:
+        size = _libc.getxattr(
+            path_bytes, _XATTR_BYTES, _xattr_buf, _XATTR_BUF_SIZE, 0, 0
+        )
+        if size <= 0:
+            return False
+        return _xattr_buf.raw[:size].strip() == target_bytes
+    except Exception:
+        return False
 
 
 def _get_file_id(path: Path) -> Optional[str]:
