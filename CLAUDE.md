@@ -58,20 +58,27 @@ xattr -p "com.google.drivefs.item-id#S" /path/to/file
 プログラムからは `ctypes` 経由で macOS の C ライブラリ `getxattr()` を直接呼び出す:
 
 ```python
-# macOS getxattr(path, name, value, size, position, options)
-size = _libc.getxattr(path_bytes, attr_bytes, None, 0, 0, 0)
-buf = ctypes.create_string_buffer(size)
-_libc.getxattr(path_bytes, attr_bytes, buf, size, 0, 0)
+# 固定サイズバッファで1回の getxattr 呼び出し（サイズ問い合わせ不要）
+_xattr_buf = ctypes.create_string_buffer(256)
+size = _libc.getxattr(path_bytes, attr_bytes, _xattr_buf, 256, 0, 0)
+file_id = _xattr_buf.raw[:size].decode("utf-8")  # .value ではなく .raw[:size] を使用
 ```
 
-- `subprocess.run(["xattr", ...])` ではなく `ctypes` を使用（1ファイルあたり約100倍高速）
-- 外部依存なし（`ctypes` は標準ライブラリ）
+パフォーマンス最適化:
+
+- `ctypes` で `getxattr()` を直接呼び出し（`subprocess` より約100倍高速）
+- 固定サイズバッファの再利用でシステムコールを2→1回に削減
+- `.raw[:size]` でバッファ再利用時の古いデータ混入を防止（`.value` は null バイトまで読むため不可）
+- `os.scandir()` でディレクトリ走査（`DirEntry` が `readdir` の `d_type` をキャッシュし `stat()` 不要）
+- `path.resolve()` はシンボリックリンクの場合のみ実行
 
 検索順序:
 
 1. `~/Library/CloudStorage/GoogleDrive-*/` 配下を走査
 2. 優先ディレクトリ（マイドライブ, My Drive, 共有ドライブ, Shared drives）を先に検索
 3. 隠しファイル（`.`で始まるもの）はスキップ
+4. イテレーティブ探索（スタック使用）でスタックオーバーフローを回避
+5. 解決済みパスのセットでシンボリックリンクループを検出
 
 ### ファイル選択方法
 

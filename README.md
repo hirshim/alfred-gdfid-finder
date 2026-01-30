@@ -54,8 +54,11 @@ uv run mypy src/
 ### コマンドライン
 
 ```bash
-# インストール済みパッケージから実行
-gdfid-finder <file_id>
+# 引数で指定
+gdfid-finder 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms
+
+# パイプで入力
+echo "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" | gdfid-finder
 
 # uvから実行
 uv run gdfid-finder <file_id>
@@ -64,14 +67,17 @@ uv run gdfid-finder <file_id>
 python -m gdfid_finder.main <file_id>
 ```
 
+ファイルIDは英数字・ハイフン・アンダースコアのみ有効（例: `1C-n4F2_SlzE9i830rlzHDtZFbX39q`）。
+
 ## 仕組み
 
 Google Drive for Desktopがファイルに設定する拡張属性（xattr）を利用:
 
 1. **検索パス**: `~/Library/CloudStorage/GoogleDrive-*/` ディレクトリを走査
 2. **ファイルID検出**: `ctypes` 経由で macOS `getxattr()` を直接呼び出し、`com.google.drivefs.item-id#S` 拡張属性を高速に読み取り
-3. **優先検索**: 「マイドライブ」/「My Drive」ディレクトリを先に検索して高速化
-4. **Finder表示**: `open -R` コマンドでFinderにファイルを表示
+3. **優先検索**: 「マイドライブ」/「My Drive」を先に検索して高速化
+4. **安全な走査**: イテレーティブ探索（スタック使用）でシンボリックリンクループを検出・回避
+5. **Finder表示**: `open -R` コマンドでFinderにファイルを表示（AppleScript不使用でinjection回避）
 
 ## プロジェクト構成
 
