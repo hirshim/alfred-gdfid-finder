@@ -160,10 +160,17 @@ def reveal_in_finder(path: Path) -> bool:
 
 
 def main() -> int:
-    """Main entry point."""
-    file_id = get_clipboard()
+    """Main entry point.
+
+    Reads file ID from: argv (Alfred selection) > clipboard (fallback).
+    """
+    # Alfred passes selected text via argv; fall back to clipboard
+    if len(sys.argv) > 1 and sys.argv[1].strip():
+        file_id = sys.argv[1].strip()
+    else:
+        file_id = get_clipboard()
     if not file_id:
-        print("クリップボードにファイルIDがありません", file=sys.stderr)
+        print("ファイルIDが取得できません", file=sys.stderr)
         return 1
 
     path = find_file_by_id(file_id)
