@@ -69,7 +69,7 @@ python -m gdfid_finder.main <file_id>
 Google Drive for Desktopがファイルに設定する拡張属性（xattr）を利用:
 
 1. **検索パス**: `~/Library/CloudStorage/GoogleDrive-*/` ディレクトリを走査
-2. **ファイルID検出**: `com.google.drivefs.item-id#S` 拡張属性を読み取り
+2. **ファイルID検出**: `ctypes` 経由で macOS `getxattr()` を直接呼び出し、`com.google.drivefs.item-id#S` 拡張属性を高速に読み取り
 3. **優先検索**: 「マイドライブ」/「My Drive」ディレクトリを先に検索して高速化
 4. **Finder表示**: `open -R` コマンドでFinderにファイルを表示
 

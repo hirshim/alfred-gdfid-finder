@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -204,32 +205,49 @@ class TestGetFileId:
     """Tests for _get_file_id function."""
 
     def test_returns_file_id_on_success(self, tmp_path: Path) -> None:
-        """Should return file ID when xattr succeeds."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "test_file_id\n"
+        """Should return file ID when getxattr succeeds."""
+        test_data = b"test_file_id"
 
-        with patch(
-            "gdfid_finder.finder.subprocess.run", return_value=mock_result
-        ):
+        def mock_getxattr(
+            _path: bytes,
+            _name: bytes,
+            value: object,
+            _size: int,
+            _position: int,
+            _options: int,
+        ) -> int:
+            if value is None:
+                return len(test_data)
+            ctypes.memmove(value, test_data, len(test_data))
+            return len(test_data)
+
+        mock_libc = MagicMock()
+        mock_libc.getxattr.side_effect = mock_getxattr
+
+        with patch("gdfid_finder.finder._libc", mock_libc):
             result = _get_file_id(tmp_path)
             assert result == "test_file_id"
 
     def test_returns_none_on_failure(self, tmp_path: Path) -> None:
-        """Should return None when xattr fails."""
-        mock_result = MagicMock()
-        mock_result.returncode = 1
+        """Should return None when getxattr fails."""
+        mock_libc = MagicMock()
+        mock_libc.getxattr.return_value = -1
 
-        with patch(
-            "gdfid_finder.finder.subprocess.run", return_value=mock_result
-        ):
+        with patch("gdfid_finder.finder._libc", mock_libc):
             result = _get_file_id(tmp_path)
             assert result is None
 
     def test_returns_none_on_exception(self, tmp_path: Path) -> None:
         """Should return None when an exception occurs."""
-        with patch(
-            "gdfid_finder.finder.subprocess.run", side_effect=Exception("error")
-        ):
+        mock_libc = MagicMock()
+        mock_libc.getxattr.side_effect = Exception("error")
+
+        with patch("gdfid_finder.finder._libc", mock_libc):
+            result = _get_file_id(tmp_path)
+            assert result is None
+
+    def test_returns_none_when_libc_unavailable(self, tmp_path: Path) -> None:
+        """Should return None when libc is not available."""
+        with patch("gdfid_finder.finder._libc", None):
             result = _get_file_id(tmp_path)
             assert result is None

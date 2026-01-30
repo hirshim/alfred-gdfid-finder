@@ -52,9 +52,21 @@ alfred-gdfid-finder/
 Google Drive for Desktopは各ファイルに拡張属性（xattr）としてファイルIDを保存:
 
 ```bash
-# ファイルIDの確認方法
+# ファイルIDの確認方法（手動確認用）
 xattr -p "com.google.drivefs.item-id#S" /path/to/file
 ```
+
+プログラムからは `ctypes` 経由で macOS の C ライブラリ `getxattr()` を直接呼び出す:
+
+```python
+# macOS getxattr(path, name, value, size, position, options)
+size = _libc.getxattr(path_bytes, attr_bytes, None, 0, 0, 0)
+buf = ctypes.create_string_buffer(size)
+_libc.getxattr(path_bytes, attr_bytes, buf, size, 0, 0)
+```
+
+- `subprocess.run(["xattr", ...])` ではなく `ctypes` を使用（1ファイルあたり約100倍高速）
+- 外部依存なし（`ctypes` は標準ライブラリ）
 
 検索順序:
 

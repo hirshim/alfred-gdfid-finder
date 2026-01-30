@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import subprocess
+import ctypes
+import ctypes.util
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,22 @@ from gdfid_finder.utils import get_google_drive_base_paths
 
 # Extended attribute name used by Google Drive for Desktop to store file IDs
 XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
+
+# Load C library for direct xattr access (avoids subprocess overhead)
+_libc_name = ctypes.util.find_library("c")
+_libc = ctypes.CDLL(_libc_name) if _libc_name else None
+
+if _libc is not None:
+    # macOS getxattr(path, name, value, size, position, options)
+    _libc.getxattr.restype = ctypes.c_ssize_t
+    _libc.getxattr.argtypes = [
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_int,
+    ]
 
 
 def find_file_by_id(file_id: str) -> Optional[Path]:
@@ -110,21 +127,29 @@ def _search_recursive(path: Path, file_id: str) -> Optional[Path]:
 def _get_file_id(path: Path) -> Optional[str]:
     """Get the Google Drive file ID from a path's extended attributes.
 
+    Uses ctypes to call macOS getxattr() directly, avoiding the overhead
+    of spawning a subprocess for each file.
+
     Args:
         path: Path to check.
 
     Returns:
         File ID string if found, None otherwise.
     """
+    if _libc is None:
+        return None
     try:
-        result = subprocess.run(
-            ["xattr", "-p", XATTR_ITEM_ID, str(path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
+        path_bytes = str(path).encode("utf-8")
+        attr_bytes = XATTR_ITEM_ID.encode("utf-8")
+        # First call with size=0 to get the attribute size
+        size = _libc.getxattr(path_bytes, attr_bytes, None, 0, 0, 0)
+        if size <= 0:
+            return None
+        # Second call to read the actual value
+        buf = ctypes.create_string_buffer(size)
+        result = _libc.getxattr(path_bytes, attr_bytes, buf, size, 0, 0)
+        if result <= 0:
+            return None
+        return buf.value.decode("utf-8").strip()
     except Exception:
-        pass
-    return None
+        return None

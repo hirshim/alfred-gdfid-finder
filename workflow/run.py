@@ -6,6 +6,8 @@ Reads file ID from clipboard and reveals the file in Finder.
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +18,22 @@ CLOUD_STORAGE_BASE = Path.home() / "Library" / "CloudStorage"
 
 # Extended attribute name for Google Drive file ID
 XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
+
+# Load C library for direct xattr access (avoids subprocess overhead)
+_libc_name = ctypes.util.find_library("c")
+_libc = ctypes.CDLL(_libc_name) if _libc_name else None
+
+if _libc is not None:
+    # macOS getxattr(path, name, value, size, position, options)
+    _libc.getxattr.restype = ctypes.c_ssize_t
+    _libc.getxattr.argtypes = [
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_int,
+    ]
 
 
 def get_clipboard() -> str:
@@ -46,19 +64,26 @@ def get_google_drive_base_paths() -> List[Path]:
 
 
 def get_file_id(path: Path) -> Optional[str]:
-    """Get the Google Drive file ID from a path's extended attributes."""
+    """Get the Google Drive file ID from a path's extended attributes.
+
+    Uses ctypes to call macOS getxattr() directly, avoiding the overhead
+    of spawning a subprocess for each file.
+    """
+    if _libc is None:
+        return None
     try:
-        result = subprocess.run(
-            ["xattr", "-p", XATTR_ITEM_ID, str(path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
+        path_bytes = str(path).encode("utf-8")
+        attr_bytes = XATTR_ITEM_ID.encode("utf-8")
+        size = _libc.getxattr(path_bytes, attr_bytes, None, 0, 0, 0)
+        if size <= 0:
+            return None
+        buf = ctypes.create_string_buffer(size)
+        result = _libc.getxattr(path_bytes, attr_bytes, buf, size, 0, 0)
+        if result <= 0:
+            return None
+        return buf.value.decode("utf-8").strip()
     except Exception:
-        pass
-    return None
+        return None
 
 
 def search_recursive(path: Path, file_id: str) -> Optional[Path]:
