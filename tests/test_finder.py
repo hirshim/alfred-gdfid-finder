@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import os
 from pathlib import Path
+from typing import List
 from unittest.mock import MagicMock, patch
 
 from gdfid_finder.finder import (
@@ -21,8 +22,15 @@ class TestFindFileById:
 
     def test_returns_none_when_no_drive_paths(self) -> None:
         """Should return None when no Google Drive paths exist."""
-        with patch(
-            "gdfid_finder.finder.get_google_drive_base_paths", return_value=[]
+        with (
+            patch(
+                "gdfid_finder.db_finder.find_file_by_id_via_db",
+                return_value=None,
+            ),
+            patch(
+                "gdfid_finder.finder.get_google_drive_base_paths",
+                return_value=[],
+            ),
         ):
             result = find_file_by_id("some_file_id")
             assert result is None
@@ -33,6 +41,10 @@ class TestFindFileById:
         drive_path.mkdir()
 
         with (
+            patch(
+                "gdfid_finder.db_finder.find_file_by_id_via_db",
+                return_value=None,
+            ),
             patch(
                 "gdfid_finder.finder.get_google_drive_base_paths",
                 return_value=[drive_path],
@@ -50,6 +62,10 @@ class TestFindFileById:
         drive2.mkdir()
 
         with (
+            patch(
+                "gdfid_finder.db_finder.find_file_by_id_via_db",
+                return_value=None,
+            ),
             patch(
                 "gdfid_finder.finder.get_google_drive_base_paths",
                 return_value=[drive1, drive2],
@@ -75,6 +91,10 @@ class TestFindFileById:
 
         with (
             patch(
+                "gdfid_finder.db_finder.find_file_by_id_via_db",
+                return_value=None,
+            ),
+            patch(
                 "gdfid_finder.finder.get_google_drive_base_paths",
                 return_value=[drive1, drive2],
             ),
@@ -86,15 +106,24 @@ class TestFindFileById:
             result = find_file_by_id("test_id")
             assert result == expected_path
 
+    def test_returns_db_result_when_available(self, tmp_path: Path) -> None:
+        """Should return DB lookup result without falling back to xattr."""
+        expected_path = tmp_path / "db_result.txt"
+
+        with patch(
+            "gdfid_finder.db_finder.find_file_by_id_via_db",
+            return_value=expected_path,
+        ):
+            result = find_file_by_id("test_id")
+            assert result == expected_path
+
 
 class TestSearchInPath:
     """Tests for _search_in_path function."""
 
     def test_returns_base_path_if_id_matches(self, tmp_path: Path) -> None:
         """Should return base path if its file ID matches."""
-        with patch(
-            "gdfid_finder.finder._has_file_id", return_value=True
-        ):
+        with patch("gdfid_finder.finder._has_file_id", return_value=True):
             result = _search_in_path(tmp_path, "target_id")
             assert result == tmp_path
 
@@ -160,9 +189,7 @@ class TestSearchIterative:
 
     def test_returns_path_if_id_matches(self, tmp_path: Path) -> None:
         """Should return path if its file ID matches."""
-        with patch(
-            "gdfid_finder.finder._has_file_id", return_value=True
-        ):
+        with patch("gdfid_finder.finder._has_file_id", return_value=True):
             result = _search_iterative(tmp_path, "target_id", set())
             assert result == tmp_path
 
@@ -260,7 +287,7 @@ class TestSearchIterative:
         loop_link = subdir / "loop"
         loop_link.symlink_to(tmp_path)
 
-        call_paths: list[str] = []
+        call_paths: List[str] = []
 
         def mock_has_id(path_bytes: bytes, _target_bytes: bytes) -> bool:
             call_paths.append(path_bytes.decode("utf-8"))
@@ -295,9 +322,7 @@ class TestHasFileId:
         mock_libc.getxattr.side_effect = mock_getxattr
 
         with patch("gdfid_finder.finder._libc", mock_libc):
-            result = _has_file_id(
-                str(tmp_path).encode("utf-8"), b"target_file_id"
-            )
+            result = _has_file_id(str(tmp_path).encode("utf-8"), b"target_file_id")
             assert result is True
 
     def test_returns_false_on_mismatch(self, tmp_path: Path) -> None:
@@ -319,9 +344,7 @@ class TestHasFileId:
         mock_libc.getxattr.side_effect = mock_getxattr
 
         with patch("gdfid_finder.finder._libc", mock_libc):
-            result = _has_file_id(
-                str(tmp_path).encode("utf-8"), b"target_file_id"
-            )
+            result = _has_file_id(str(tmp_path).encode("utf-8"), b"target_file_id")
             assert result is False
 
     def test_returns_false_on_failure(self, tmp_path: Path) -> None:
@@ -330,9 +353,7 @@ class TestHasFileId:
         mock_libc.getxattr.return_value = -1
 
         with patch("gdfid_finder.finder._libc", mock_libc):
-            result = _has_file_id(
-                str(tmp_path).encode("utf-8"), b"target"
-            )
+            result = _has_file_id(str(tmp_path).encode("utf-8"), b"target")
             assert result is False
 
     def test_returns_false_when_libc_unavailable(self) -> None:

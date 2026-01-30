@@ -47,8 +47,8 @@ _StackEntry = Tuple[str, bool, bool]
 def find_file_by_id(file_id: str) -> Optional[Path]:
     """Find a Google Drive file by its file ID.
 
-    Searches through Google Drive for Desktop mount points to find
-    a file or folder matching the given ID.
+    First attempts a fast lookup via the DriveFS SQLite database (~1ms).
+    Falls back to xattr directory scan (~365ms) if the DB lookup fails.
 
     Args:
         file_id: Google Drive file ID to search for.
@@ -56,6 +56,14 @@ def find_file_by_id(file_id: str) -> Optional[Path]:
     Returns:
         Path to the file if found, None otherwise.
     """
+    # Fast path: SQLite DB lookup
+    from gdfid_finder.db_finder import find_file_by_id_via_db
+
+    path = find_file_by_id_via_db(file_id)
+    if path:
+        return path
+
+    # Fallback: xattr scan
     base_paths = get_google_drive_base_paths()
     if not base_paths:
         return None
@@ -113,9 +121,7 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
     return None
 
 
-def _search_iterative(
-    root: Path, file_id: str, visited: Set[str]
-) -> Optional[Path]:
+def _search_iterative(root: Path, file_id: str, visited: Set[str]) -> Optional[Path]:
     """Iteratively search for a file ID using a stack.
 
     Uses an explicit stack instead of recursion to avoid stack overflow

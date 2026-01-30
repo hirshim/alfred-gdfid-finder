@@ -35,7 +35,8 @@ alfred-gdfid-finder/
 │   └── gdfid_finder/     # メインパッケージ
 │       ├── __init__.py
 │       ├── main.py       # エントリーポイント
-│       ├── finder.py     # ファイル検索ロジック
+│       ├── finder.py     # ファイル検索ロジック（xattr走査）
+│       ├── db_finder.py  # DB検索ロジック（SQLite）
 │       └── utils.py      # ユーティリティ関数
 ├── tests/                # テストコード
 ├── workflow/             # Alfred Workflow用ファイル
@@ -74,11 +75,12 @@ file_id = _xattr_buf.raw[:size].decode("utf-8")  # .value ではなく .raw[:siz
 
 検索順序:
 
-1. `~/Library/CloudStorage/GoogleDrive-*/` 配下を走査
-2. 優先ディレクトリ（マイドライブ, My Drive, 共有ドライブ, Shared drives）を先に検索
-3. 隠しファイル（`.`で始まるもの）はスキップ
-4. イテレーティブ探索（スタック使用）でスタックオーバーフローを回避
-5. 解決済みパスのセットでシンボリックリンクループを検出
+1. **DB検索（高速パス）**: DriveFS内部SQLiteデータベース（`~/Library/Application Support/Google/DriveFS/<account>/metadata_sqlite_db`）から再帰CTEでパスを復元（~0.5ms）
+2. **xattr走査（フォールバック）**: DB検索失敗時、`~/Library/CloudStorage/GoogleDrive-*/` 配下を走査
+3. 優先ディレクトリ（マイドライブ, My Drive, 共有ドライブ, Shared drives）を先に検索
+4. 隠しファイル（`.`で始まるもの）はスキップ
+5. イテレーティブ探索（スタック使用）でスタックオーバーフローを回避
+6. 解決済みパスのセットでシンボリックリンクループを検出
 
 ### ファイル選択方法
 

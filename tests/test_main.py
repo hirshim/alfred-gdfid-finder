@@ -40,9 +40,7 @@ class TestGetFileId:
         with (
             patch("gdfid_finder.main.sys.argv", ["script"]),
             patch("gdfid_finder.main.sys.stdin.isatty", return_value=False),
-            patch(
-                "gdfid_finder.main.sys.stdin.read", return_value="stdin_file_id\n"
-            ),
+            patch("gdfid_finder.main.sys.stdin.read", return_value="stdin_file_id\n"),
         ):
             result = _get_file_id()
             assert result == "stdin_file_id"

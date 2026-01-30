@@ -71,10 +71,10 @@ python -m gdfid_finder.main <file_id>
 
 ## 仕組み
 
-Google Drive for Desktopがファイルに設定する拡張属性（xattr）を利用:
+2段階の検索戦略で高速にファイルを特定:
 
-1. **検索パス**: `~/Library/CloudStorage/GoogleDrive-*/` ディレクトリを走査
-2. **ファイルID検出**: `ctypes` 経由で macOS `getxattr()` を直接呼び出し、`com.google.drivefs.item-id#S` 拡張属性を高速に読み取り
+1. **DB検索（高速パス）**: Google Drive for Desktopの内部SQLiteデータベースから再帰CTEでパスを復元（~0.5ms）
+2. **xattr走査（フォールバック）**: DB検索失敗時、`~/Library/CloudStorage/GoogleDrive-*/` ディレクトリを走査し、`ctypes` 経由で macOS `getxattr()` を直接呼び出して `com.google.drivefs.item-id#S` 拡張属性を読み取り
 3. **優先検索**: 「マイドライブ」/「My Drive」を先に検索して高速化
 4. **安全な走査**: イテレーティブ探索（スタック使用）でシンボリックリンクループを検出・回避
 5. **Finder表示**: `open -R` コマンドでFinderにファイルを表示（AppleScript不使用でinjection回避）
@@ -85,7 +85,8 @@ Google Drive for Desktopがファイルに設定する拡張属性（xattr）を
 alfred-gdfid-finder/
 ├── src/gdfid_finder/     # メインパッケージ
 │   ├── main.py           # CLIエントリーポイント
-│   ├── finder.py         # ファイル検索ロジック
+│   ├── finder.py         # ファイル検索ロジック（xattr走査）
+│   ├── db_finder.py      # DB検索ロジック（SQLite）
 │   └── utils.py          # ユーティリティ関数
 ├── tests/                # テストファイル
 ├── workflow/             # Alfred Workflow用ファイル
