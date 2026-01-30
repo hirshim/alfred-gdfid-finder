@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gdfid_finder.main import _get_file_id, main
+from gdfid_finder.main import _get_file_id, _is_valid_file_id, main
 from gdfid_finder.utils import RevealResult
 
 
@@ -46,6 +46,46 @@ class TestGetFileId:
         ):
             result = _get_file_id()
             assert result == "stdin_file_id"
+
+    def test_returns_none_for_invalid_file_id(self) -> None:
+        """Should return None when argument contains invalid characters."""
+        with patch("gdfid_finder.main.sys.argv", ["script", "has spaces"]):
+            result = _get_file_id()
+            assert result is None
+
+    def test_returns_none_for_empty_arg(self) -> None:
+        """Should return None when argument is empty after strip."""
+        with patch("gdfid_finder.main.sys.argv", ["script", "   "]):
+            result = _get_file_id()
+            assert result is None
+
+
+class TestIsValidFileId:
+    """Tests for _is_valid_file_id function."""
+
+    def test_valid_alphanumeric_id(self) -> None:
+        """Should accept alphanumeric IDs."""
+        assert _is_valid_file_id("1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms")
+
+    def test_valid_id_with_hyphens_and_underscores(self) -> None:
+        """Should accept IDs with hyphens and underscores."""
+        assert _is_valid_file_id("1C-n4F2DCbJ_SlzE9i830rlzHDtZFbX39q")
+
+    def test_rejects_empty_string(self) -> None:
+        """Should reject empty string."""
+        assert not _is_valid_file_id("")
+
+    def test_rejects_string_with_spaces(self) -> None:
+        """Should reject strings with spaces."""
+        assert not _is_valid_file_id("hello world")
+
+    def test_rejects_string_with_special_chars(self) -> None:
+        """Should reject strings with special characters."""
+        assert not _is_valid_file_id("file@id#123")
+
+    def test_rejects_string_with_path_chars(self) -> None:
+        """Should reject strings with path separators."""
+        assert not _is_valid_file_id("../etc/passwd")
 
 
 class TestMain:

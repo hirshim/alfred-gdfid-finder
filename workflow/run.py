@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -167,6 +168,17 @@ def find_file_by_id(file_id: str) -> Optional[Path]:
     return None
 
 
+# Google Drive file IDs: alphanumeric, hyphens, underscores
+_FILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def is_valid_file_id(file_id: str) -> bool:
+    """Validate that a string looks like a Google Drive file ID."""
+    if not file_id:
+        return False
+    return _FILE_ID_PATTERN.match(file_id) is not None
+
+
 def reveal_in_finder(path: Path) -> bool:
     """Reveal a file in Finder using open -R."""
     if not path.exists():
@@ -190,7 +202,7 @@ def main() -> int:
         file_id = sys.argv[1].strip()
     else:
         file_id = get_clipboard()
-    if not file_id:
+    if not file_id or not is_valid_file_id(file_id):
         print("ファイルIDが取得できません", file=sys.stderr)
         return 1
 

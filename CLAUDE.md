@@ -38,7 +38,6 @@ alfred-gdfid-finder/
 │       ├── finder.py     # ファイル検索ロジック
 │       └── utils.py      # ユーティリティ関数
 ├── tests/                # テストコード
-├── doc/                  # ドキュメント
 ├── workflow/             # Alfred Workflow用ファイル
 ├── pyproject.toml        # プロジェクト設定
 ├── CLAUDE.md             # このファイル

@@ -124,6 +124,25 @@ class TestSearchInPath:
             result = _search_in_path(tmp_path, "nonexistent_id")
             assert result is None
 
+    def test_finds_in_non_priority_directory(self, tmp_path: Path) -> None:
+        """Should find file in non-priority directory after priority search."""
+        my_drive = tmp_path / "マイドライブ"
+        my_drive.mkdir()
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+
+        target_file = other_dir / "target.txt"
+        target_file.write_text("test")
+
+        def mock_get_id(path: Path) -> str | None:
+            if path == target_file:
+                return "target_id"
+            return None
+
+        with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
+            result = _search_in_path(tmp_path, "target_id")
+            assert result == target_file
+
     def test_handles_permission_error(self, tmp_path: Path) -> None:
         """Should handle PermissionError gracefully."""
         with (
@@ -196,6 +215,36 @@ class TestSearchIterative:
         with (
             patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id),
             patch.object(Path, "iterdir", mock_iterdir),
+        ):
+            result = _search_iterative(tmp_path, "test_id", set())
+            assert result is None
+
+    def test_skips_non_directory_entries(self, tmp_path: Path) -> None:
+        """Should skip non-directory entries after checking file ID."""
+        regular_file = tmp_path / "file.txt"
+        regular_file.write_text("test")
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        target_file = subdir / "target.txt"
+        target_file.write_text("test")
+
+        def mock_get_id(path: Path) -> str | None:
+            if path == target_file:
+                return "target_id"
+            return None
+
+        with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
+            result = _search_iterative(tmp_path, "target_id", set())
+            assert result == target_file
+
+    def test_handles_os_error_on_resolve(self, tmp_path: Path) -> None:
+        """Should handle OSError when resolving path."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        with (
+            patch("gdfid_finder.finder._get_file_id", return_value=None),
+            patch.object(Path, "resolve", side_effect=OSError),
         ):
             result = _search_iterative(tmp_path, "test_id", set())
             assert result is None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from typing import Optional
 
@@ -45,12 +46,33 @@ def _get_file_id() -> Optional[str]:
         File ID string or None if not provided.
     """
     if len(sys.argv) > 1:
-        return sys.argv[1].strip()
+        file_id = sys.argv[1].strip()
+    elif not sys.stdin.isatty():
+        file_id = sys.stdin.read().strip()
+    else:
+        return None
 
-    if not sys.stdin.isatty():
-        return sys.stdin.read().strip()
+    if not _is_valid_file_id(file_id):
+        return None
+    return file_id
 
-    return None
+
+# Google Drive file IDs: alphanumeric, hyphens, underscores
+_FILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _is_valid_file_id(file_id: str) -> bool:
+    """Validate that a string looks like a Google Drive file ID.
+
+    Args:
+        file_id: String to validate.
+
+    Returns:
+        True if the string is a valid file ID format.
+    """
+    if not file_id:
+        return False
+    return _FILE_ID_PATTERN.match(file_id) is not None
 
 
 if __name__ == "__main__":
