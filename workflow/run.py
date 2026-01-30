@@ -87,7 +87,7 @@ def get_file_id(path: Path) -> Optional[str]:
         )
         if size <= 0:
             return None
-        return _xattr_buf.value.decode("utf-8").strip()
+        return _xattr_buf.raw[:size].decode("utf-8").strip()
     except Exception:
         return None
 
