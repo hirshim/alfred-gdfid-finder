@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from gdfid_finder.finder import (
     _get_file_id,
     _search_in_path,
-    _search_recursive,
+    _search_iterative,
     find_file_by_id,
 )
 
@@ -134,19 +134,19 @@ class TestSearchInPath:
             assert result is None
 
 
-class TestSearchRecursive:
-    """Tests for _search_recursive function."""
+class TestSearchIterative:
+    """Tests for _search_iterative function."""
 
     def test_returns_path_if_id_matches(self, tmp_path: Path) -> None:
         """Should return path if its file ID matches."""
         with patch(
             "gdfid_finder.finder._get_file_id", return_value="target_id"
         ):
-            result = _search_recursive(tmp_path, "target_id")
+            result = _search_iterative(tmp_path, "target_id", set())
             assert result == tmp_path
 
-    def test_searches_children_recursively(self, tmp_path: Path) -> None:
-        """Should search child directories recursively."""
+    def test_searches_children(self, tmp_path: Path) -> None:
+        """Should search child directories."""
         subdir = tmp_path / "subdir"
         subdir.mkdir()
         target_file = subdir / "target.txt"
@@ -158,7 +158,7 @@ class TestSearchRecursive:
             return None
 
         with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
-            result = _search_recursive(tmp_path, "target_id")
+            result = _search_iterative(tmp_path, "target_id", set())
             assert result == target_file
 
     def test_skips_hidden_files(self, tmp_path: Path) -> None:
@@ -176,7 +176,7 @@ class TestSearchRecursive:
             return None
 
         with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
-            _search_recursive(tmp_path, "test_id")
+            _search_iterative(tmp_path, "test_id", set())
             # Should only check tmp_path, not .hidden or its contents
             assert call_count == 1
 
@@ -197,8 +197,28 @@ class TestSearchRecursive:
             patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id),
             patch.object(Path, "iterdir", mock_iterdir),
         ):
-            result = _search_recursive(tmp_path, "test_id")
+            result = _search_iterative(tmp_path, "test_id", set())
             assert result is None
+
+    def test_detects_symlink_loop(self, tmp_path: Path) -> None:
+        """Should detect and skip symlink loops."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        # Create symlink pointing back to parent
+        loop_link = subdir / "loop"
+        loop_link.symlink_to(tmp_path)
+
+        call_paths: list[Path] = []
+
+        def mock_get_id(path: Path) -> str | None:
+            call_paths.append(path)
+            return None
+
+        with patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id):
+            result = _search_iterative(tmp_path, "nonexistent", set())
+            assert result is None
+            # Should NOT infinitely recurse; visited set prevents re-entering tmp_path
+            assert len(call_paths) < 20
 
 
 class TestGetFileId:

@@ -11,7 +11,7 @@ import ctypes.util
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 # Google Drive base path pattern
 CLOUD_STORAGE_BASE = Path.home() / "Library" / "CloudStorage"
@@ -86,19 +86,38 @@ def get_file_id(path: Path) -> Optional[str]:
         return None
 
 
-def search_recursive(path: Path, file_id: str) -> Optional[Path]:
-    """Recursively search for a file ID."""
-    if get_file_id(path) == file_id:
-        return path
+def search_iterative(
+    root: Path, file_id: str, visited: Set[str]
+) -> Optional[Path]:
+    """Iteratively search for a file ID using a stack.
 
-    if path.is_dir():
+    Tracks resolved paths to detect symlink loops.
+    """
+    stack = [root]
+
+    while stack:
+        path = stack.pop()
+
+        if get_file_id(path) == file_id:
+            return path
+
+        if not path.is_dir():
+            continue
+
+        try:
+            real_path = str(path.resolve())
+        except OSError:
+            continue
+
+        if real_path in visited:
+            continue
+        visited.add(real_path)
+
         try:
             for child in path.iterdir():
                 if child.name.startswith("."):
                     continue
-                found = search_recursive(child, file_id)
-                if found:
-                    return found
+                stack.append(child)
         except PermissionError:
             pass
 
@@ -110,11 +129,13 @@ def search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
     if get_file_id(base_path) == file_id:
         return base_path
 
+    visited: Set[str] = set()
+
     priority_dirs = ["マイドライブ", "My Drive", "共有ドライブ", "Shared drives"]
     for dir_name in priority_dirs:
         priority_path = base_path / dir_name
         if priority_path.exists():
-            found = search_recursive(priority_path, file_id)
+            found = search_iterative(priority_path, file_id, visited)
             if found:
                 return found
 
@@ -123,7 +144,7 @@ def search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
             if child.name.startswith(".") or child.name in priority_dirs:
                 continue
             if child.is_dir():
-                found = search_recursive(child, file_id)
+                found = search_iterative(child, file_id, visited)
                 if found:
                     return found
     except PermissionError:

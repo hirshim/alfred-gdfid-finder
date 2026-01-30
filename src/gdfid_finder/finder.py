@@ -5,7 +5,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Set
 
 from gdfid_finder.utils import get_google_drive_base_paths
 
@@ -56,8 +56,9 @@ def find_file_by_id(file_id: str) -> Optional[Path]:
 def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
     """Search for a file ID within a given path.
 
-    Recursively searches through the directory tree, checking the
+    Iteratively searches through the directory tree, checking the
     extended attribute 'com.google.drivefs.item-id#S' on each file/folder.
+    Detects symlink loops via resolved path tracking.
 
     Args:
         base_path: Base path to search in.
@@ -70,12 +71,14 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
     if _get_file_id(base_path) == file_id:
         return base_path
 
+    visited: Set[str] = set()
+
     # Search in common locations first (マイドライブ, My Drive)
     priority_dirs = ["マイドライブ", "My Drive", "共有ドライブ", "Shared drives"]
     for dir_name in priority_dirs:
         priority_path = base_path / dir_name
         if priority_path.exists():
-            found = _search_recursive(priority_path, file_id)
+            found = _search_iterative(priority_path, file_id, visited)
             if found:
                 return found
 
@@ -85,7 +88,7 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
             if child.name.startswith(".") or child.name in priority_dirs:
                 continue
             if child.is_dir():
-                found = _search_recursive(child, file_id)
+                found = _search_iterative(child, file_id, visited)
                 if found:
                     return found
     except PermissionError:
@@ -94,30 +97,48 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
     return None
 
 
-def _search_recursive(path: Path, file_id: str) -> Optional[Path]:
-    """Recursively search for a file ID.
+def _search_iterative(
+    root: Path, file_id: str, visited: Set[str]
+) -> Optional[Path]:
+    """Iteratively search for a file ID using a stack.
+
+    Uses an explicit stack instead of recursion to avoid stack overflow
+    on deep directory trees. Tracks resolved paths to detect symlink loops.
 
     Args:
-        path: Path to search in.
+        root: Root path to start searching from.
         file_id: File ID to search for.
+        visited: Set of resolved directory paths already visited.
 
     Returns:
         Path if found, None otherwise.
     """
-    # Check current path
-    if _get_file_id(path) == file_id:
-        return path
+    stack = [root]
 
-    # If it's a directory, search children
-    if path.is_dir():
+    while stack:
+        path = stack.pop()
+
+        if _get_file_id(path) == file_id:
+            return path
+
+        if not path.is_dir():
+            continue
+
+        # Resolve symlinks to detect loops
+        try:
+            real_path = str(path.resolve())
+        except OSError:
+            continue
+
+        if real_path in visited:
+            continue
+        visited.add(real_path)
+
         try:
             for child in path.iterdir():
-                # Skip hidden files/directories for performance
                 if child.name.startswith("."):
                     continue
-                found = _search_recursive(child, file_id)
-                if found:
-                    return found
+                stack.append(child)
         except PermissionError:
             pass
 
