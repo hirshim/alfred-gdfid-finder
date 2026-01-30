@@ -285,8 +285,6 @@ class TestGetFileId:
             _position: int,
             _options: int,
         ) -> int:
-            if value is None:
-                return len(test_data)
             ctypes.memmove(value, test_data, len(test_data))
             return len(test_data)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import os
 from pathlib import Path
 from typing import Optional, Set
 
@@ -11,6 +12,13 @@ from gdfid_finder.utils import get_google_drive_base_paths
 
 # Extended attribute name used by Google Drive for Desktop to store file IDs
 XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
+
+# Pre-encoded attribute name (avoid per-file encoding overhead)
+_XATTR_BYTES = XATTR_ITEM_ID.encode("utf-8")
+
+# Fixed-size buffer for getxattr (Google Drive file IDs are ~40-50 chars)
+_XATTR_BUF_SIZE = 256
+_xattr_buf = ctypes.create_string_buffer(_XATTR_BUF_SIZE)
 
 # Load C library for direct xattr access (avoids subprocess overhead)
 _libc_name = ctypes.util.find_library("c")
@@ -84,11 +92,11 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
 
     # Search other directories
     try:
-        for child in base_path.iterdir():
-            if child.name.startswith(".") or child.name in priority_dirs:
+        for entry in os.scandir(base_path):
+            if entry.name.startswith(".") or entry.name in priority_dirs:
                 continue
-            if child.is_dir():
-                found = _search_iterative(child, file_id, visited)
+            if entry.is_dir(follow_symlinks=False):
+                found = _search_iterative(Path(entry.path), file_id, visited)
                 if found:
                     return found
     except PermissionError:
@@ -104,6 +112,8 @@ def _search_iterative(
 
     Uses an explicit stack instead of recursion to avoid stack overflow
     on deep directory trees. Tracks resolved paths to detect symlink loops.
+    Uses os.scandir() for efficient directory enumeration (DirEntry caches
+    is_dir/is_symlink from readdir, avoiding extra stat() calls).
 
     Args:
         root: Root path to start searching from.
@@ -124,9 +134,9 @@ def _search_iterative(
         if not path.is_dir():
             continue
 
-        # Resolve symlinks to detect loops
+        # Only resolve symlinks when actually a symlink
         try:
-            real_path = str(path.resolve())
+            real_path = str(path.resolve()) if path.is_symlink() else str(path)
         except OSError:
             continue
 
@@ -135,10 +145,10 @@ def _search_iterative(
         visited.add(real_path)
 
         try:
-            for child in path.iterdir():
-                if child.name.startswith("."):
+            for entry in os.scandir(path):
+                if entry.name.startswith("."):
                     continue
-                stack.append(child)
+                stack.append(Path(entry.path))
         except PermissionError:
             pass
 
@@ -148,8 +158,8 @@ def _search_iterative(
 def _get_file_id(path: Path) -> Optional[str]:
     """Get the Google Drive file ID from a path's extended attributes.
 
-    Uses ctypes to call macOS getxattr() directly, avoiding the overhead
-    of spawning a subprocess for each file.
+    Uses ctypes to call macOS getxattr() directly with a fixed-size buffer,
+    reducing syscalls from 2 to 1 per file.
 
     Args:
         path: Path to check.
@@ -161,16 +171,12 @@ def _get_file_id(path: Path) -> Optional[str]:
         return None
     try:
         path_bytes = str(path).encode("utf-8")
-        attr_bytes = XATTR_ITEM_ID.encode("utf-8")
-        # First call with size=0 to get the attribute size
-        size = _libc.getxattr(path_bytes, attr_bytes, None, 0, 0, 0)
+        # Single getxattr call with fixed-size buffer
+        size = _libc.getxattr(
+            path_bytes, _XATTR_BYTES, _xattr_buf, _XATTR_BUF_SIZE, 0, 0
+        )
         if size <= 0:
             return None
-        # Second call to read the actual value
-        buf = ctypes.create_string_buffer(size)
-        result = _libc.getxattr(path_bytes, attr_bytes, buf, size, 0, 0)
-        if result <= 0:
-            return None
-        return buf.value.decode("utf-8").strip()
+        return _xattr_buf.value.decode("utf-8").strip()
     except Exception:
         return None

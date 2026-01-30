@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import os
 import re
 import subprocess
 import sys
@@ -19,6 +20,13 @@ CLOUD_STORAGE_BASE = Path.home() / "Library" / "CloudStorage"
 
 # Extended attribute name for Google Drive file ID
 XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
+
+# Pre-encoded attribute name (avoid per-file encoding overhead)
+_XATTR_BYTES = XATTR_ITEM_ID.encode("utf-8")
+
+# Fixed-size buffer for getxattr (Google Drive file IDs are ~40-50 chars)
+_XATTR_BUF_SIZE = 256
+_xattr_buf = ctypes.create_string_buffer(_XATTR_BUF_SIZE)
 
 # Load C library for direct xattr access (avoids subprocess overhead)
 _libc_name = ctypes.util.find_library("c")
@@ -67,22 +75,19 @@ def get_google_drive_base_paths() -> List[Path]:
 def get_file_id(path: Path) -> Optional[str]:
     """Get the Google Drive file ID from a path's extended attributes.
 
-    Uses ctypes to call macOS getxattr() directly, avoiding the overhead
-    of spawning a subprocess for each file.
+    Uses ctypes to call macOS getxattr() directly with a fixed-size buffer,
+    reducing syscalls from 2 to 1 per file.
     """
     if _libc is None:
         return None
     try:
         path_bytes = str(path).encode("utf-8")
-        attr_bytes = XATTR_ITEM_ID.encode("utf-8")
-        size = _libc.getxattr(path_bytes, attr_bytes, None, 0, 0, 0)
+        size = _libc.getxattr(
+            path_bytes, _XATTR_BYTES, _xattr_buf, _XATTR_BUF_SIZE, 0, 0
+        )
         if size <= 0:
             return None
-        buf = ctypes.create_string_buffer(size)
-        result = _libc.getxattr(path_bytes, attr_bytes, buf, size, 0, 0)
-        if result <= 0:
-            return None
-        return buf.value.decode("utf-8").strip()
+        return _xattr_buf.value.decode("utf-8").strip()
     except Exception:
         return None
 
@@ -93,6 +98,7 @@ def search_iterative(
     """Iteratively search for a file ID using a stack.
 
     Tracks resolved paths to detect symlink loops.
+    Uses os.scandir() for efficient directory enumeration.
     """
     stack = [root]
 
@@ -106,7 +112,7 @@ def search_iterative(
             continue
 
         try:
-            real_path = str(path.resolve())
+            real_path = str(path.resolve()) if path.is_symlink() else str(path)
         except OSError:
             continue
 
@@ -115,10 +121,10 @@ def search_iterative(
         visited.add(real_path)
 
         try:
-            for child in path.iterdir():
-                if child.name.startswith("."):
+            for entry in os.scandir(path):
+                if entry.name.startswith("."):
                     continue
-                stack.append(child)
+                stack.append(Path(entry.path))
         except PermissionError:
             pass
 
@@ -141,11 +147,11 @@ def search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
                 return found
 
     try:
-        for child in base_path.iterdir():
-            if child.name.startswith(".") or child.name in priority_dirs:
+        for entry in os.scandir(base_path):
+            if entry.name.startswith(".") or entry.name in priority_dirs:
                 continue
-            if child.is_dir():
-                found = search_iterative(child, file_id, visited)
+            if entry.is_dir(follow_symlinks=False):
+                found = search_iterative(Path(entry.path), file_id, visited)
                 if found:
                     return found
     except PermissionError:
