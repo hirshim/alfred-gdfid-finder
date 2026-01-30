@@ -29,7 +29,7 @@
 	<key>disabled</key>
 	<false/>
 	<key>name</key>
-	<string>Google Drive File Finder</string>
+	<string>alfred-gdfid-finder</string>
 	<key>objects</key>
 	<array>
 		<dict>
