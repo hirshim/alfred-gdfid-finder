@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -147,7 +148,7 @@ class TestSearchInPath:
         """Should handle PermissionError gracefully."""
         with (
             patch("gdfid_finder.finder._get_file_id", return_value=None),
-            patch.object(Path, "iterdir", side_effect=PermissionError),
+            patch("gdfid_finder.finder.os.scandir", side_effect=PermissionError),
         ):
             result = _search_in_path(tmp_path, "test_id")
             assert result is None
@@ -207,14 +208,16 @@ class TestSearchIterative:
         def mock_get_id(_path: Path) -> str | None:
             return None
 
-        def mock_iterdir(self: Path) -> list[Path]:
-            if self == tmp_path:
-                return [subdir]
-            raise PermissionError
+        original_scandir = os.scandir
+
+        def mock_scandir(path: object) -> object:
+            if Path(str(path)) == subdir:
+                raise PermissionError
+            return original_scandir(path)
 
         with (
             patch("gdfid_finder.finder._get_file_id", side_effect=mock_get_id),
-            patch.object(Path, "iterdir", mock_iterdir),
+            patch("gdfid_finder.finder.os.scandir", side_effect=mock_scandir),
         ):
             result = _search_iterative(tmp_path, "test_id", set())
             assert result is None
@@ -318,3 +321,45 @@ class TestGetFileId:
         with patch("gdfid_finder.finder._libc", None):
             result = _get_file_id(tmp_path)
             assert result is None
+
+    def test_short_id_after_long_id_no_corruption(self, tmp_path: Path) -> None:
+        """Should return exact ID even when buffer contains leftover data.
+
+        Regression test: the shared ctypes buffer retains old data from
+        previous calls. If raw[:size] is not used (e.g. using .value instead),
+        a shorter ID read after a longer one would include stale bytes.
+        """
+        long_data = b"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+        short_data = b"1akwdmoOKcbdPMAm2HcuclRARu53ypHSt"
+
+        call_count = 0
+
+        def mock_getxattr(
+            _path: bytes,
+            _name: bytes,
+            value: object,
+            _size: int,
+            _position: int,
+            _options: int,
+        ) -> int:
+            nonlocal call_count
+            call_count += 1
+            data = long_data if call_count == 1 else short_data
+            ctypes.memmove(value, data, len(data))
+            return len(data)
+
+        mock_libc = MagicMock()
+        mock_libc.getxattr.side_effect = mock_getxattr
+
+        file_a = tmp_path / "file_a.txt"
+        file_b = tmp_path / "file_b.txt"
+        file_a.write_text("a")
+        file_b.write_text("b")
+
+        with patch("gdfid_finder.finder._libc", mock_libc):
+            result_long = _get_file_id(file_a)
+            result_short = _get_file_id(file_b)
+
+        assert result_long == long_data.decode("utf-8")
+        assert result_short == short_data.decode("utf-8")
+        assert len(result_short) == len(short_data)  # type: ignore[arg-type]
