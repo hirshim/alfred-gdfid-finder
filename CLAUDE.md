@@ -68,7 +68,7 @@ file_id = _xattr_buf.raw[:size].decode("utf-8")  # .value ではなく .raw[:siz
 パフォーマンス最適化:
 
 - `ctypes` で `getxattr()` を直接呼び出し（`subprocess` より約100倍高速）
-- 固定サイズバッファの再利用でシステムコールを2→1回に削減
+- 固定サイズバッファの再利用でシステムコールを2→1回に削減（**非スレッドセーフ**: 単一プロセス前提）
 - `.raw[:size]` でバッファ再利用時の古いデータ混入を防止（`.value` は null バイトまで読むため不可）
 - `os.scandir()` でディレクトリ走査（`DirEntry` が `readdir` の `d_type` をキャッシュし `stat()` 不要）
 - `path.resolve()` はシンボリックリンクの場合のみ実行
@@ -122,6 +122,8 @@ uv run ruff format src/ tests/
 
 - 開発: リポジトリからシンボリックリンクで使用
 - 配布: `.alfredworkflow`形式でエクスポート
+- `workflow/run.py` は `src/` の**スタンドアロンコピー**（Alfred配布時に外部パッケージ不要とするため意図的に重複）
+- `src/` を変更した場合は `workflow/run.py` にも同じ変更を反映すること
 
 ## 関連ドキュメント
 

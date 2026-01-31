@@ -231,6 +231,8 @@ _DRIVEFS_BASE = Path.home() / "Library" / "Application Support" / "Google" / "Dr
 _METADATA_DB = "metadata_sqlite_db"
 
 # Possible parent directories for root segments
+# Empty string MUST be first: マイドライブ/My Drive are direct children of the
+# mount point, while other roots are nested under prefix directories.
 _ROOT_PREFIXES = [
     "",  # Direct child (e.g. マイドライブ, My Drive)
     "その他のパソコン",
@@ -252,7 +254,7 @@ WITH RECURSIVE path_cte(stable_id, local_title, parent_id, depth) AS (
     FROM path_cte p
     JOIN items i ON i.stable_id = p.parent_id
     LEFT JOIN stable_parents sp ON sp.item_stable_id = i.stable_id
-    WHERE p.parent_id IS NOT NULL AND p.depth < 50
+    WHERE p.parent_id IS NOT NULL AND p.depth < 50  -- safety limit; Google Drive nesting rarely exceeds ~10
 )
 SELECT local_title FROM path_cte ORDER BY depth DESC
 """
@@ -341,7 +343,7 @@ def find_file_by_id_via_db(file_id: str) -> Optional[Path]:
 def find_file_by_id(file_id: str) -> Optional[Path]:
     """Find a Google Drive file by its file ID.
 
-    Tries SQLite DB lookup first (~1ms), falls back to xattr scan (~365ms).
+    Tries SQLite DB lookup first (~0.5ms), falls back to xattr scan (~310ms).
     """
     # Fast path: SQLite DB lookup
     path = find_file_by_id_via_db(file_id)

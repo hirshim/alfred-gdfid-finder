@@ -17,6 +17,8 @@ XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
 _XATTR_BYTES = XATTR_ITEM_ID.encode("utf-8")
 
 # Fixed-size buffer for getxattr (Google Drive file IDs are ~40-50 chars)
+# NOTE: Shared mutable buffer — NOT thread-safe. This module assumes
+# single-threaded execution (Alfred Workflow runs one process per invocation).
 _XATTR_BUF_SIZE = 256
 _xattr_buf = ctypes.create_string_buffer(_XATTR_BUF_SIZE)
 
@@ -47,8 +49,8 @@ _StackEntry = Tuple[str, bool, bool]
 def find_file_by_id(file_id: str) -> Optional[Path]:
     """Find a Google Drive file by its file ID.
 
-    First attempts a fast lookup via the DriveFS SQLite database (~1ms).
-    Falls back to xattr directory scan (~365ms) if the DB lookup fails.
+    First attempts a fast lookup via the DriveFS SQLite database (~0.5ms).
+    Falls back to xattr directory scan (~310ms) if the DB lookup fails.
 
     Args:
         file_id: Google Drive file ID to search for.
