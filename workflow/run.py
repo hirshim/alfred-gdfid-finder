@@ -20,10 +20,10 @@ from typing import List, Optional, Set, Tuple
 CLOUD_STORAGE_BASE = Path.home() / "Library" / "CloudStorage"
 
 # Extended attribute name for Google Drive file ID
-XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
+_XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
 
 # Pre-encoded attribute name (avoid per-file encoding overhead)
-_XATTR_BYTES = XATTR_ITEM_ID.encode("utf-8")
+_XATTR_BYTES = _XATTR_ITEM_ID.encode("utf-8")
 
 # Fixed-size buffer for getxattr (Google Drive file IDs are ~40-50 chars)
 _XATTR_BUF_SIZE = 256
@@ -144,7 +144,7 @@ def search_iterative(
         if not is_dir and not is_symlink:
             continue
 
-        if is_symlink and not is_dir and not Path(path_str).is_dir():
+        if is_symlink and not is_dir and not os.path.isdir(path_str):  # noqa: PTH112
             continue
 
         try:
@@ -193,7 +193,7 @@ def search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
         for entry in os.scandir(base_path):
             if entry.name.startswith(".") or entry.name in _PRIORITY_DIRS_SET:
                 continue
-            if entry.is_dir(follow_symlinks=False):
+            if entry.is_dir(follow_symlinks=True):
                 found = search_iterative(Path(entry.path), file_id, visited)
                 if found:
                     return found
@@ -285,6 +285,9 @@ def resolve_path(
     base_path: Path, segments: List[str]
 ) -> Optional[Path]:
     """Resolve path segments to a full filesystem path."""
+    if not segments:
+        return None
+
     relative = Path(*segments)
 
     for prefix in _ROOT_PREFIXES:

@@ -154,6 +154,9 @@ def _resolve_path(base_path: Path, segments: List[str]) -> Optional[Path]:
     Returns:
         Full Path if it exists on disk, None otherwise.
     """
+    if not segments:
+        return None
+
     relative = Path(*segments)
 
     for prefix in _ROOT_PREFIXES:

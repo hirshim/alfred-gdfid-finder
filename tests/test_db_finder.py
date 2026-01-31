@@ -216,6 +216,11 @@ class TestResolvePath:
         result = _resolve_path(tmp_path, ["TeamDrive", "file.doc"])
         assert result == target
 
+    def test_returns_none_when_segments_empty(self, tmp_path: Path) -> None:
+        """Should return None when segments list is empty."""
+        result = _resolve_path(tmp_path, [])
+        assert result is None
+
     def test_returns_none_when_path_not_found(self, tmp_path: Path) -> None:
         """Should return None when no prefix produces a valid path."""
         result = _resolve_path(tmp_path, ["nonexistent", "file.txt"])

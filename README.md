@@ -42,7 +42,7 @@ echo "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" | gdfid-finder
 uv run gdfid-finder <file_id>
 
 # 直接実行
-python -m gdfid_finder.main <file_id>
+python -m gdfid_finder <file_id>
 ```
 
 ファイルIDは英数字・ハイフン・アンダースコアのみ有効（例: `1C-n4F2_SlzE9i830rlzHDtZFbX39q`）。

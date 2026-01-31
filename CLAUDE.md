@@ -34,6 +34,7 @@ alfred-gdfid-finder/
 ├── src/
 │   └── gdfid_finder/     # メインパッケージ
 │       ├── __init__.py
+│       ├── __main__.py   # python -m gdfid_finder 対応
 │       ├── main.py       # エントリーポイント
 │       ├── finder.py     # ファイル検索ロジック（xattr走査）
 │       ├── db_finder.py  # DB検索ロジック（SQLite）

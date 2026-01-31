@@ -11,10 +11,10 @@ from typing import List, Optional, Set, Tuple
 from gdfid_finder.utils import get_google_drive_base_paths
 
 # Extended attribute name used by Google Drive for Desktop to store file IDs
-XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
+_XATTR_ITEM_ID = "com.google.drivefs.item-id#S"
 
 # Pre-encoded attribute name (avoid per-file encoding overhead)
-_XATTR_BYTES = XATTR_ITEM_ID.encode("utf-8")
+_XATTR_BYTES = _XATTR_ITEM_ID.encode("utf-8")
 
 # Fixed-size buffer for getxattr (Google Drive file IDs are ~40-50 chars)
 # NOTE: Shared mutable buffer — NOT thread-safe. This module assumes
@@ -113,7 +113,7 @@ def _search_in_path(base_path: Path, file_id: str) -> Optional[Path]:
         for entry in os.scandir(base_path):
             if entry.name.startswith(".") or entry.name in _PRIORITY_DIRS_SET:
                 continue
-            if entry.is_dir(follow_symlinks=False):
+            if entry.is_dir(follow_symlinks=True):
                 found = _search_iterative(Path(entry.path), file_id, visited)
                 if found:
                     return found
