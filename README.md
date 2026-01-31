@@ -19,29 +19,7 @@ GoogleドライブのファイルIDからFinderでファイルを表示するAlf
 
 ## インストール
 
-### ユーザー向け
-
-リリースから `.alfredworkflow` ファイルをダウンロードし、ダブルクリックでインストール。
-
-### 開発者向け
-
-```bash
-# リポジトリをクローン
-git clone https://github.com/hirshim/alfred-gdfid-finder.git
-cd alfred-gdfid-finder
-
-# 依存関係をインストール
-uv sync --dev
-
-# テスト実行
-uv run pytest
-
-# リンター実行
-uv run ruff check src/ tests/
-
-# 型チェック
-uv run mypy src/
-```
+[Releases](https://github.com/hirshim/alfred-gdfid-finder/releases/latest) から `.alfredworkflow` ファイルをダウンロードし、ダブルクリックでインストール。
 
 ## 使い方
 
@@ -96,6 +74,11 @@ alfred-gdfid-finder/
 ## 開発
 
 ```bash
+# セットアップ
+git clone https://github.com/hirshim/alfred-gdfid-finder.git
+cd alfred-gdfid-finder
+uv sync --dev
+
 # コードフォーマット
 uv run ruff format src/ tests/
 

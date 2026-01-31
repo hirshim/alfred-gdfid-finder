@@ -9,7 +9,6 @@ from typing import List
 from unittest.mock import MagicMock, patch
 
 from gdfid_finder.finder import (
-    _get_file_id,
     _has_file_id,
     _search_in_path,
     _search_iterative,
@@ -400,95 +399,3 @@ class TestHasFileId:
             # Verify short ID does NOT match long target
             call_count = 1  # Reset to make next call return short_data
             assert _has_file_id(path_bytes, long_data) is False
-
-
-class TestGetFileId:
-    """Tests for _get_file_id function."""
-
-    def test_returns_file_id_on_success(self, tmp_path: Path) -> None:
-        """Should return file ID when getxattr succeeds."""
-        test_data = b"test_file_id"
-
-        def mock_getxattr(
-            _path: bytes,
-            _name: bytes,
-            value: object,
-            _size: int,
-            _position: int,
-            _options: int,
-        ) -> int:
-            ctypes.memmove(value, test_data, len(test_data))
-            return len(test_data)
-
-        mock_libc = MagicMock()
-        mock_libc.getxattr.side_effect = mock_getxattr
-
-        with patch("gdfid_finder.finder._libc", mock_libc):
-            result = _get_file_id(tmp_path)
-            assert result == "test_file_id"
-
-    def test_returns_none_on_failure(self, tmp_path: Path) -> None:
-        """Should return None when getxattr fails."""
-        mock_libc = MagicMock()
-        mock_libc.getxattr.return_value = -1
-
-        with patch("gdfid_finder.finder._libc", mock_libc):
-            result = _get_file_id(tmp_path)
-            assert result is None
-
-    def test_returns_none_on_exception(self, tmp_path: Path) -> None:
-        """Should return None when an exception occurs."""
-        mock_libc = MagicMock()
-        mock_libc.getxattr.side_effect = Exception("error")
-
-        with patch("gdfid_finder.finder._libc", mock_libc):
-            result = _get_file_id(tmp_path)
-            assert result is None
-
-    def test_returns_none_when_libc_unavailable(self, tmp_path: Path) -> None:
-        """Should return None when libc is not available."""
-        with patch("gdfid_finder.finder._libc", None):
-            result = _get_file_id(tmp_path)
-            assert result is None
-
-    def test_short_id_after_long_id_no_corruption(self, tmp_path: Path) -> None:
-        """Should return exact ID even when buffer contains leftover data.
-
-        Regression test: the shared ctypes buffer retains old data from
-        previous calls. If raw[:size] is not used (e.g. using .value instead),
-        a shorter ID read after a longer one would include stale bytes.
-        """
-        long_data = b"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-        short_data = b"1akwdmoOKcbdPMAm2HcuclRARu53ypHSt"
-
-        call_count = 0
-
-        def mock_getxattr(
-            _path: bytes,
-            _name: bytes,
-            value: object,
-            _size: int,
-            _position: int,
-            _options: int,
-        ) -> int:
-            nonlocal call_count
-            call_count += 1
-            data = long_data if call_count == 1 else short_data
-            ctypes.memmove(value, data, len(data))
-            return len(data)
-
-        mock_libc = MagicMock()
-        mock_libc.getxattr.side_effect = mock_getxattr
-
-        file_a = tmp_path / "file_a.txt"
-        file_b = tmp_path / "file_b.txt"
-        file_a.write_text("a")
-        file_b.write_text("b")
-
-        with patch("gdfid_finder.finder._libc", mock_libc):
-            result_long = _get_file_id(file_a)
-            result_short = _get_file_id(file_b)
-
-        assert result_long == long_data.decode("utf-8")
-        assert result_short == short_data.decode("utf-8")
-        assert len(result_short) == len(short_data)  # type: ignore[arg-type]

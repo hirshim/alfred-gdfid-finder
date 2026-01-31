@@ -98,26 +98,6 @@ def has_file_id(path_bytes: bytes, target_bytes: bytes) -> bool:
         return False
 
 
-def get_file_id(path: Path) -> Optional[str]:
-    """Get the Google Drive file ID from a path's extended attributes.
-
-    Uses ctypes to call macOS getxattr() directly with a fixed-size buffer,
-    reducing syscalls from 2 to 1 per file.
-    """
-    if _libc is None:
-        return None
-    try:
-        path_bytes = str(path).encode("utf-8")
-        size = _libc.getxattr(
-            path_bytes, _XATTR_BYTES, _xattr_buf, _XATTR_BUF_SIZE, 0, 0
-        )
-        if size <= 0:
-            return None
-        return _xattr_buf.raw[:size].decode("utf-8").strip()
-    except Exception:
-        return None
-
-
 def search_iterative(
     root: Path, file_id: str, visited: Set[str]
 ) -> Optional[Path]:
@@ -164,9 +144,8 @@ def search_iterative(
         if not is_dir and not is_symlink:
             continue
 
-        if is_symlink and not is_dir:
-            if not os.path.isdir(path_str):
-                continue
+        if is_symlink and not is_dir and not Path(path_str).is_dir():
+            continue
 
         try:
             real_path = os.path.realpath(path_str) if is_symlink else path_str
@@ -382,6 +361,7 @@ def reveal_in_finder(path: Path) -> bool:
     result = subprocess.run(
         ["open", "-R", str(path)],
         capture_output=True,
+        text=True,
         check=False,
     )
     return result.returncode == 0

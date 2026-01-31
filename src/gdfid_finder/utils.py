@@ -26,9 +26,14 @@ def get_google_drive_base_paths() -> List[Path]:
     if not cloud_storage.exists():
         return []
 
-    return sorted(
-        p for p in cloud_storage.iterdir() if p.name.startswith("GoogleDrive-")
-    )
+    try:
+        return sorted(
+            p
+            for p in cloud_storage.iterdir()
+            if p.name.startswith("GoogleDrive-") and p.is_dir()
+        )
+    except PermissionError:
+        return []
 
 
 def reveal_in_finder(path: Path) -> RevealResult:

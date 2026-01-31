@@ -243,30 +243,3 @@ def _has_file_id(path_bytes: bytes, target_bytes: bytes) -> bool:
         return _xattr_buf.raw[:size].strip() == target_bytes
     except Exception:
         return False
-
-
-def _get_file_id(path: Path) -> Optional[str]:
-    """Get the Google Drive file ID from a path's extended attributes.
-
-    Uses ctypes to call macOS getxattr() directly with a fixed-size buffer,
-    reducing syscalls from 2 to 1 per file.
-
-    Args:
-        path: Path to check.
-
-    Returns:
-        File ID string if found, None otherwise.
-    """
-    if _libc is None:
-        return None
-    try:
-        path_bytes = str(path).encode("utf-8")
-        # Single getxattr call with fixed-size buffer
-        size = _libc.getxattr(
-            path_bytes, _XATTR_BYTES, _xattr_buf, _XATTR_BUF_SIZE, 0, 0
-        )
-        if size <= 0:
-            return None
-        return _xattr_buf.raw[:size].decode("utf-8").strip()
-    except Exception:
-        return None

@@ -125,13 +125,6 @@ uv run ruff format src/ tests/
 - `workflow/run.py` は `src/` の**スタンドアロンコピー**（Alfred配布時に外部パッケージ不要とするため意図的に重複）
 - `src/` を変更した場合は `workflow/run.py` にも同じ変更を反映すること
 
-## 関連ドキュメント
-
-| ファイル | 役割 |
-|----------|------|
-| `project-bootstrap-prompt.md` | プロジェクトの初期設定要件 |
-| `.cursorrules` | Cursor IDEの設定ファイル |
-
 ## ドキュメント管理ルール
 
 - CLAUDE.md は 200 行以内を保つ
